@@ -16,9 +16,12 @@ function getConnectionString(): string {
 
 function getSql() {
   if (!sql) {
-    sql = postgres(getConnectionString(), {
+    const connectionString = getConnectionString();
+    // Render always requires SSL for external connections
+    const isExternalConnection = connectionString.includes('render.com');
+    sql = postgres(connectionString, {
       prepare: false,
-      ssl: process.env.NODE_ENV === "production" ? "require" : false
+      ssl: isExternalConnection || process.env.NODE_ENV === "production" ? "require" : false
     });
   }
   return sql;
