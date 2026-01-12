@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { Header } from "@/components/header";
 import { StatCard } from "@/components/stat-card";
 import { Card } from "@/components/ui/card";
@@ -12,47 +14,57 @@ import {
   Play,
 } from "lucide-react";
 import Link from "next/link";
+import { db, competitors, videos, trackedHashtags } from "@/lib/db";
+import { desc, gte, count } from "drizzle-orm";
 
-// Mock data - will be replaced with real data from database
-const mockStats = {
-  competitors: 8,
-  videosScraped: 1247,
-  trendsTracked: 24,
-  aiUgcDetected: 156,
-};
+async function getStats() {
+  try {
+    const [competitorCount] = await db.select({ count: count() }).from(competitors);
+    const [videoCount] = await db.select({ count: count() }).from(videos);
+    const [hashtagCount] = await db.select({ count: count() }).from(trackedHashtags);
+    const [aiUgcCount] = await db.select({ count: count() }).from(videos).where(gte(videos.aiUgcScore, 0.5));
 
-const mockRecentVideos = [
-  {
-    id: 1,
-    author: "@shein_official",
-    description: "New summer collection just dropped! #shein #fashion",
-    likes: 45200,
-    isAiUgc: false,
-  },
-  {
-    id: 2,
-    author: "@fashionfinds",
-    description: "You NEED this dress I just discovered...",
-    likes: 12300,
-    isAiUgc: true,
-  },
-  {
-    id: 3,
-    author: "@cider",
-    description: "POV: Your outfit for the weekend",
-    likes: 89100,
-    isAiUgc: false,
-  },
-];
+    return {
+      competitors: competitorCount?.count || 0,
+      videosScraped: videoCount?.count || 0,
+      trendsTracked: hashtagCount?.count || 0,
+      aiUgcDetected: aiUgcCount?.count || 0,
+    };
+  } catch {
+    return { competitors: 0, videosScraped: 0, trendsTracked: 0, aiUgcDetected: 0 };
+  }
+}
 
-const mockTrendingHashtags = [
-  { tag: "#quietluxury", growth: "+45%", videos: 125000 },
-  { tag: "#grwm", growth: "+23%", videos: 890000 },
-  { tag: "#minimalstyle", growth: "+67%", videos: 45000 },
-  { tag: "#chinahaul", growth: "+89%", videos: 23000 },
-];
+async function getRecentVideos() {
+  try {
+    const recentVideos = await db
+      .select()
+      .from(videos)
+      .orderBy(desc(videos.scrapedAt))
+      .limit(5);
+    return recentVideos;
+  } catch {
+    return [];
+  }
+}
 
-export default function DashboardPage() {
+async function getTrackedHashtags() {
+  try {
+    const hashtags = await db
+      .select()
+      .from(trackedHashtags)
+      .limit(4);
+    return hashtags;
+  } catch {
+    return [];
+  }
+}
+
+export default async function DashboardPage() {
+  const stats = await getStats();
+  const recentVideos = await getRecentVideos();
+  const hashtags = await getTrackedHashtags();
+
   return (
     <div>
       <Header
@@ -65,67 +77,71 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Competitors Tracked"
-            value={mockStats.competitors}
-            change="+2 this week"
-            changeType="positive"
+            value={stats.competitors}
+            change="Add more in Competitors tab"
+            changeType="neutral"
             icon={Users}
           />
           <StatCard
             title="Videos Scraped"
-            value={mockStats.videosScraped.toLocaleString()}
-            change="+128 today"
-            changeType="positive"
+            value={stats.videosScraped.toLocaleString()}
+            change="Run a scrape to collect"
+            changeType="neutral"
             icon={Video}
           />
           <StatCard
-            title="Trends Tracked"
-            value={mockStats.trendsTracked}
-            change="3 breakouts"
-            changeType="positive"
+            title="Hashtags Tracked"
+            value={stats.trendsTracked}
+            change="Add in Hashtags tab"
+            changeType="neutral"
             icon={TrendingUp}
           />
           <StatCard
             title="AI UGC Detected"
-            value={mockStats.aiUgcDetected}
-            change="12.5% of videos"
+            value={stats.aiUgcDetected}
+            change={stats.videosScraped > 0 ? `${((stats.aiUgcDetected / stats.videosScraped) * 100).toFixed(1)}% of videos` : "No videos yet"}
             changeType="neutral"
             icon={Bot}
           />
         </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          {/* Trending Hashtags */}
+          {/* Tracked Hashtags */}
           <Card className="p-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Trending Hashtags</h2>
-              <Link href="/trends">
+              <h2 className="text-lg font-semibold">Tracked Hashtags</h2>
+              <Link href="/hashtags">
                 <Button variant="ghost" size="sm">
-                  View all
+                  Manage
                   <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
               </Link>
             </div>
 
             <div className="mt-4 space-y-3">
-              {mockTrendingHashtags.map((hashtag) => (
-                <div
-                  key={hashtag.tag}
-                  className="flex items-center justify-between rounded-lg bg-zinc-50 p-3"
-                >
-                  <div>
-                    <p className="font-medium text-zinc-900">{hashtag.tag}</p>
-                    <p className="text-sm text-zinc-500">
-                      {hashtag.videos.toLocaleString()} videos
-                    </p>
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className="bg-green-100 text-green-700"
-                  >
-                    {hashtag.growth}
-                  </Badge>
+              {hashtags.length === 0 ? (
+                <div className="rounded-lg bg-zinc-50 p-4 text-center text-zinc-500">
+                  No hashtags tracked yet.
+                  <Link href="/hashtags" className="block mt-2">
+                    <Button size="sm">Add Hashtag</Button>
+                  </Link>
                 </div>
-              ))}
+              ) : (
+                hashtags.map((hashtag) => (
+                  <div
+                    key={hashtag.id}
+                    className="flex items-center justify-between rounded-lg bg-zinc-50 p-3"
+                  >
+                    <div>
+                      <p className="font-medium text-zinc-900">#{hashtag.hashtag}</p>
+                      <p className="text-sm text-zinc-500">{hashtag.category || "Uncategorized"}</p>
+                    </div>
+                    <Badge variant="secondary" className={hashtag.isActive ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-500"}>
+                      {hashtag.isActive ? "Active" : "Paused"}
+                    </Badge>
+                  </div>
+                ))
+              )}
             </div>
           </Card>
 
@@ -142,33 +158,51 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 space-y-3">
-              {mockRecentVideos.map((video) => (
-                <div
-                  key={video.id}
-                  className="flex items-start gap-3 rounded-lg bg-zinc-50 p-3"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-200">
-                    <Play className="h-5 w-5 text-zinc-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-zinc-900">{video.author}</p>
-                      {video.isAiUgc && (
-                        <Badge className="bg-yellow-100 text-yellow-700">
-                          <Bot className="mr-1 h-3 w-3" />
-                          AI UGC
-                        </Badge>
+              {recentVideos.length === 0 ? (
+                <div className="rounded-lg bg-zinc-50 p-4 text-center text-zinc-500">
+                  No videos scraped yet.
+                  <Link href="/jobs" className="block mt-2">
+                    <Button size="sm">Run Scrape</Button>
+                  </Link>
+                </div>
+              ) : (
+                recentVideos.map((video) => (
+                  <div
+                    key={video.id}
+                    className="flex items-start gap-3 rounded-lg bg-zinc-50 p-3"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-zinc-200 overflow-hidden">
+                      {video.coverUrl ? (
+                        <img src={video.coverUrl} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <Play className="h-5 w-5 text-zinc-500" />
                       )}
                     </div>
-                    <p className="mt-0.5 truncate text-sm text-zinc-500">
-                      {video.description}
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-400">
-                      {video.likes.toLocaleString()} likes
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-zinc-900">@{video.authorHandle}</p>
+                        {(video.aiUgcScore || 0) >= 0.5 && (
+                          <Badge className="bg-yellow-100 text-yellow-700">
+                            <Bot className="mr-1 h-3 w-3" />
+                            AI UGC
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-sm text-zinc-500">
+                        {video.description || "No description"}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {(video.likes || 0).toLocaleString()} likes
+                      </p>
+                    </div>
+                    {video.webUrl && (
+                      <a href={video.webUrl} target="_blank" rel="noopener noreferrer">
+                        <Button variant="ghost" size="sm">View</Button>
+                      </a>
+                    )}
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </Card>
         </div>
@@ -176,6 +210,7 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <Card className="mt-6 p-6">
           <h2 className="text-lg font-semibold">Quick Actions</h2>
+          <p className="text-sm text-zinc-500 mt-1">Get started by adding competitors and running your first scrape</p>
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/competitors">
               <Button>
